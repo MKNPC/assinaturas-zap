@@ -1,12 +1,4 @@
-const STORAGE_KEY = 'assinaturas-zap-data';
-
-function uuid() {
-  return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
-
-function todayISO() {
-  return new Date().toISOString().split('T')[0];
-}
+const API_BASE = '/api';
 
 function monthKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -16,7 +8,7 @@ function monthLabel(key) {
   const [y, m] = key.split('-');
   const months = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
   ];
   return `${months[parseInt(m) - 1]} ${y}`;
 }
@@ -27,38 +19,22 @@ function formatDate(iso) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 }
 
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 // ─── State ───
 let state = {
   currentMonth: monthKey(new Date()),
-  months: {},
+  people: [],
+  loading: false,
+  error: null,
 };
 
 let currentFilter = 'all';
 let currentSearch = '';
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      state.currentMonth = parsed.currentMonth || monthKey(new Date());
-      state.months = parsed.months || {};
-    }
-  } catch {
-    // fallback to defaults
-  }
-}
-
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
-
-function getMonthData(month) {
-  if (!state.months[month]) {
-    state.months[month] = { people: [] };
-  }
-  return state.months[month];
-}
 
 // ─── DOM refs ───
 const $ = (sel) => document.querySelector(sel);
@@ -75,27 +51,67 @@ const searchInput = $('#searchInput');
 const filterBtns = $$('.filter-btn');
 const peopleList = $('#peopleList');
 const emptyState = $('#emptyState');
-const resetBtn = $('#resetMonth');
 const exportBtn = $('#exportData');
 const receiptModal = $('#receiptModal');
 const receiptImage = $('#receiptImage');
+const loadingEl = $('#loadingIndicator');
+
+// ─── API ───
+async function api(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Erro desconhecido');
+  return data;
+}
+
+// ─── Load people from server ───
+async function loadPeople() {
+  state.loading = true;
+  state.error = null;
+  render();
+
+  try {
+    const data = await api(`/people?month=${state.currentMonth}`);
+    state.people = data.people;
+    state.loading = false;
+    render();
+  } catch (err) {
+    state.loading = false;
+    state.error = err.message;
+    render();
+  }
+}
 
 // ─── Render ───
 function render() {
-  const month = state.currentMonth;
-  monthTitle.textContent = monthLabel(month);
+  monthTitle.textContent = monthLabel(state.currentMonth);
 
-  const data = getMonthData(month);
-  const people = data.people;
-
-  // Stats
-  const total = people.length;
-  const paid = people.filter((p) => p.paid).length;
+  const total = state.people.length;
+  const paid = state.people.filter((p) => p.paid).length;
   const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
   stats.textContent = `${paid}/${total} pagos (${pct}%)`;
 
-  // Filter + Search
-  let filtered = [...people];
+  if (state.loading) {
+    loadingEl.classList.add('show');
+    peopleList.innerHTML = '';
+    emptyState.classList.remove('show');
+    return;
+  }
+
+  loadingEl.classList.remove('show');
+
+  if (state.error) {
+    peopleList.innerHTML = '';
+    emptyState.classList.add('show');
+    emptyState.querySelector('p').textContent = `Erro: ${state.error}`;
+    emptyState.querySelector('.empty-icon').textContent = '⚠️';
+    return;
+  }
+
+  let filtered = [...state.people];
 
   if (currentFilter === 'paid') {
     filtered = filtered.filter((p) => p.paid);
@@ -108,23 +124,23 @@ function render() {
     filtered = filtered.filter((p) => p.name.toLowerCase().includes(q));
   }
 
-  // Sort: unpaid first, then by name
   filtered.sort((a, b) => {
     if (a.paid !== b.paid) return a.paid ? 1 : -1;
     return a.name.localeCompare(b.name, 'pt-BR');
   });
 
-  // Render rows
   if (filtered.length === 0) {
     peopleList.innerHTML = '';
     emptyState.classList.add('show');
+    emptyState.querySelector('p').textContent = total === 0
+      ? 'Nenhuma pessoa cadastrada neste mês.'
+      : 'Nenhum resultado encontrado.';
+    emptyState.querySelector('.empty-icon').textContent = '📋';
     return;
   }
 
   emptyState.classList.remove('show');
-  peopleList.innerHTML = filtered
-    .map((p) => renderRow(p))
-    .join('');
+  peopleList.innerHTML = filtered.map((p) => renderRow(p)).join('');
 }
 
 function renderRow(person) {
@@ -134,13 +150,21 @@ function renderRow(person) {
   let receiptHTML = '';
   if (person.receipt) {
     receiptHTML = `
-      <img
-        class="receipt-preview"
-        src="${person.receipt.data}"
-        alt="Comprovante"
-        data-id="${person.id}"
-        data-action="view-receipt"
-      />
+      <div style="position:relative;display:inline-flex;align-items:center;gap:4px">
+        <img
+          class="receipt-preview"
+          src="${person.receipt.data}"
+          alt="Comprovante"
+          data-id="${person.id}"
+          data-action="view-receipt"
+        />
+        <button
+          class="receipt-remove-btn"
+          data-id="${person.id}"
+          data-action="remove-receipt"
+          title="Remover comprovante"
+        >&times;</button>
+      </div>
     `;
   } else {
     receiptHTML = `
@@ -169,9 +193,7 @@ function renderRow(person) {
         >${paidLabel}</button>
       </td>
       <td class="col-receipt">
-        <div class="receipt-cell">
-          ${receiptHTML}
-        </div>
+        <div class="receipt-cell">${receiptHTML}</div>
       </td>
       <td class="col-date">
         <span class="date-cell">${formatDate(person.paidAt)}</span>
@@ -188,135 +210,90 @@ function renderRow(person) {
   `;
 }
 
-function escapeHTML(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // ─── Actions ───
-function addPerson(name) {
-  const month = state.currentMonth;
-  const data = getMonthData(month);
-
-  const exists = data.people.some(
-    (p) => p.name.toLowerCase().trim() === name.toLowerCase().trim()
-  );
-  if (exists) {
-    alert('Esta pessoa já está cadastrada neste mês.');
-    return false;
+async function addPerson(name) {
+  addBtn.disabled = true;
+  try {
+    await api('/people', {
+      method: 'POST',
+      body: JSON.stringify({ name, month: state.currentMonth }),
+    });
+    nameInput.value = '';
+    await loadPeople();
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    addBtn.disabled = false;
+    nameInput.focus();
   }
-
-  data.people.push({
-    id: uuid(),
-    name: name.trim(),
-    paid: false,
-    receipt: null,
-    paidAt: null,
-  });
-
-  saveState();
-  render();
-  return true;
 }
 
-function togglePaid(id) {
-  const month = state.currentMonth;
-  const data = getMonthData(month);
-  const person = data.people.find((p) => p.id === id);
-  if (!person) return;
-
-  person.paid = !person.paid;
-  person.paidAt = person.paid ? todayISO() : null;
-
-  // When marking unpaid, keep the receipt (don't clear it)
-  saveState();
-  render();
+async function togglePaid(id) {
+  try {
+    await api(`/people/${id}/toggle`, { method: 'PATCH' });
+    await loadPeople();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
-function deletePerson(id) {
-  const month = state.currentMonth;
-  const data = getMonthData(month);
-  data.people = data.people.filter((p) => p.id !== id);
-  saveState();
-  render();
+async function deletePerson(id) {
+  if (!confirm('Remover esta pessoa?')) return;
+  try {
+    await api(`/people/${id}`, { method: 'DELETE' });
+    await loadPeople();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
-function handleReceiptUpload(id, file) {
-  const month = state.currentMonth;
-  const data = getMonthData(month);
-  const person = data.people.find((p) => p.id === id);
-  if (!person) return;
-
+async function handleReceiptUpload(id, file) {
   const reader = new FileReader();
-  reader.onload = (e) => {
-    person.receipt = {
-      name: file.name,
-      data: e.target.result,
-    };
-    saveState();
-    render();
+  reader.onload = async (e) => {
+    try {
+      await api(`/people/${id}/receipt`, {
+        method: 'PATCH',
+        body: JSON.stringify({ data: e.target.result, name: file.name }),
+      });
+      await loadPeople();
+    } catch (err) {
+      alert(err.message);
+    }
   };
   reader.readAsDataURL(file);
 }
 
-function removeReceipt(id) {
-  const month = state.currentMonth;
-  const data = getMonthData(month);
-  const person = data.people.find((p) => p.id === id);
-  if (!person) return;
-
-  person.receipt = null;
-  saveState();
-  render();
-}
-
-function resetMonth() {
-  const month = state.currentMonth;
-  if (!confirm(`Tem certeza? Todas as pessoas de ${monthLabel(month)} serão removidas.`)) return;
-
-  state.months[month] = { people: [] };
-  saveState();
-  render();
-}
-
-function exportData() {
-  const text = generateExportText();
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `assinaturas-${state.currentMonth}.txt`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function generateExportText() {
-  const month = state.currentMonth;
-  const data = getMonthData(month);
-  const lines = [
-    `=== Assinaturas Zap - ${monthLabel(month)} ===`,
-    `Total: ${data.people.length} | Pagos: ${data.people.filter(p => p.paid).length}`,
-    '',
-    'Nome | Status | Data',
-    '-'.repeat(40),
-  ];
-
-  for (const p of data.people) {
-    const status = p.paid ? '✅ Pago' : '⬜ Pendente';
-    const date = p.paidAt ? formatDate(p.paidAt) : '-';
-    lines.push(`${p.name} | ${status} | ${date}`);
+async function removeReceipt(id) {
+  if (!confirm('Remover comprovante?')) return;
+  try {
+    await api(`/people/${id}/receipt`, { method: 'DELETE' });
+    await loadPeople();
+  } catch (err) {
+    alert(err.message);
   }
-
-  return lines.join('\r\n');
 }
 
-function navigateMonth(direction) {
+async function navigateMonth(direction) {
   const [y, m] = state.currentMonth.split('-').map(Number);
   const d = new Date(y, m - 1 + direction, 1);
   state.currentMonth = monthKey(d);
-  saveState();
-  render();
+  await loadPeople();
+}
+
+async function exportData() {
+  try {
+    const res = await fetch(`${API_BASE}/export?month=${state.currentMonth}`);
+    const text = await res.text();
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `assinaturas-${state.currentMonth}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 function showReceipt(src) {
@@ -340,6 +317,7 @@ peopleList.addEventListener('click', (e) => {
   if (action === 'toggle-paid') togglePaid(id);
   else if (action === 'delete') deletePerson(id);
   else if (action === 'view-receipt') showReceipt(btn.src);
+  else if (action === 'remove-receipt') removeReceipt(id);
 });
 
 peopleList.addEventListener('change', (e) => {
@@ -348,28 +326,11 @@ peopleList.addEventListener('change', (e) => {
   handleReceiptUpload(input.dataset.id, input.files[0]);
 });
 
-// Also re-render when a receipt is removed via right-click context
-peopleList.addEventListener('contextmenu', (e) => {
-  const preview = e.target.closest('.receipt-preview');
-  if (!preview) return;
-  e.preventDefault();
-  if (confirm('Remover comprovante?')) {
-    removeReceipt(preview.dataset.id);
-  }
-});
-
 // ─── Form ───
 addForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const name = nameInput.value.trim();
-  if (!name) return;
-
-  addBtn.disabled = true;
-  const ok = addPerson(name);
-  addBtn.disabled = false;
-
-  if (ok) nameInput.value = '';
-  nameInput.focus();
+  if (name) addPerson(name);
 });
 
 // ─── Search ───
@@ -393,7 +354,6 @@ prevBtn.addEventListener('click', () => navigateMonth(-1));
 nextBtn.addEventListener('click', () => navigateMonth(1));
 
 // ─── Footer ───
-resetBtn.addEventListener('click', resetMonth);
 exportBtn.addEventListener('click', exportData);
 
 // ─── Modal ───
@@ -408,5 +368,4 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ─── Init ───
-loadState();
-render();
+loadPeople();

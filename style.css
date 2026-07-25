@@ -312,6 +312,31 @@ body {
   transform: scale(1.1);
 }
 
+.receipt-remove-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.receipt-cell:hover .receipt-remove-btn {
+  opacity: 1;
+}
+
 .date-cell {
   font-size: 0.8125rem;
   color: var(--text-secondary);
@@ -332,6 +357,36 @@ body {
   background: #fef2f2;
   border-color: var(--danger);
   color: var(--danger);
+}
+
+/* ─── Loading ─── */
+.loading {
+  display: none;
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+}
+
+.loading.show {
+  display: block;
+}
+
+.loading::after {
+  content: '';
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.5rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ─── Empty State ─── */
