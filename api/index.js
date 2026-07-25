@@ -48,9 +48,17 @@ app.post('/api/people', (req, res) => {
   res.status(201).json({ id, name: trimmed, month, paid: false, receipt: null, paidAt: null });
 });
 
+const FREE_NAMES = ['mikael lorran natali'];
+
 app.patch('/api/people/:id/toggle', (req, res) => {
+  const person = getPerson(req.params.id);
+  if (!person) return res.status(404).json({ error: 'not found' });
+
+  if (!person.paid && !person.receipt_data && !FREE_NAMES.includes(person.name.toLowerCase())) {
+    return res.status(400).json({ error: 'Adicione uma captura de tela do comprovante' });
+  }
+
   const result = togglePaid(req.params.id);
-  if (!result) return res.status(404).json({ error: 'not found' });
   res.json(result);
 });
 
