@@ -17,6 +17,20 @@ app.use(express.json({ limit: '10mb' }));
 
 const FREE_NAMES = ['mikael lorran natali'];
 
+app.get('/api/ping', async (req, res) => {
+  let storeOk = false;
+  try {
+    const p = await getPeople('2026-07');
+    storeOk = Array.isArray(p);
+  } catch {}
+  res.json({
+    ok: true,
+    vercel: Boolean(process.env.VERCEL),
+    hasToken: Boolean(process.env.GH_TOKEN || process.env.gh_token),
+    storeOk,
+  });
+});
+
 app.get('/api/people', async (req, res) => {
   const month = req.query.month;
   if (!month) return res.status(400).json({ error: 'month required' });
