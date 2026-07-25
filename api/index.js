@@ -19,16 +19,33 @@ const FREE_NAMES = ['mikael lorran natali'];
 
 app.get('/api/ping', async (req, res) => {
   let storeOk = false;
+  let ghTest = null;
   try {
     const p = await getPeople('2026-07');
     storeOk = Array.isArray(p);
-  } catch {}
-  res.json({
-    ok: true,
-    vercel: Boolean(process.env.VERCEL),
-    hasToken: Boolean(process.env.GH_TOKEN || process.env.gh_token),
-    storeOk,
-  });
+  } catch (e) { ghTest = e.message; }
+
+  // Direct GitHub API test
+  const token = process.env.GH_TOKEN || process.env.gh_token;
+  let ghDirect = null;
+  if (token) {
+    try {
+      const r = await fetch('https://api.github.com/repos/MKNPC/assinaturas-zap/contents/data%2Fdb.json', {
+        headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'test', Accept: 'application/vnd.github.v3+json' },
+        signal: AbortSignal.timeout(5000),
+      });
+      ghDirect = { status: r.status, ok: r.ok };
+      if (r.ok) {
+        const json = await r.json();
+        ghDirect.sha = json.sha;
+        ghDirect.size = json.size;
+      }
+    } catch (e) {
+      ghDirect = { error: e.message };
+    }
+  }
+
+  res.json({ ok: true, vercel: Boolean(process.env.VERCEL), hasToken: Boolean(token), ghRepo: process.env.VERCEL_GIT_REPO_OWNER ? `${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_REPO}` : null, storeOk, ghDirect });
 });
 
 app.get('/api/people', async (req, res) => {
