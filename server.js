@@ -6,12 +6,9 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(__dirname, 'data');
+const isVercel = Boolean(process.env.VERCEL);
+const DATA_DIR = isVercel ? '/tmp/data' : join(__dirname, 'data');
 const DB_PATH = join(DATA_DIR, 'db.sqlite');
-
-if (!existsSync(DATA_DIR)) {
-  mkdirSync(DATA_DIR, { recursive: true });
-}
 
 function todayISO() {
   return new Date().toISOString().split('T')[0];
@@ -51,26 +48,34 @@ function queryOne(db, sql, params = {}) {
   return row;
 }
 
-async function init() {
+let cachedApp;
+
+export async function createApp() {
+  if (cachedApp) return cachedApp;
+
   const SQL = await initSqlJs();
+
+  if (!existsSync(DATA_DIR)) {
+    mkdirSync(DATA_DIR, { recursive: true });
+  }
 
   let db;
 
-  function loadDatabase() {
-    if (existsSync(DB_PATH)) {
-      const buffer = readFileSync(DB_PATH);
-      db = new SQL.Database(buffer);
-    } else {
-      db = new SQL.Database();
-    }
+  if (existsSync(DB_PATH)) {
+    const buffer = readFileSync(DB_PATH);
+    db = new SQL.Database(buffer);
+  } else {
+    db = new SQL.Database();
   }
 
   function saveDatabase() {
-    const data = db.export();
-    writeFileSync(DB_PATH, Buffer.from(data));
+    try {
+      const data = db.export();
+      writeFileSync(DB_PATH, Buffer.from(data));
+    } catch {
+      // Vercel readonly sometimes
+    }
   }
-
-  loadDatabase();
 
   db.run(`
     CREATE TABLE IF NOT EXISTS people (
@@ -217,13 +222,15 @@ async function init() {
     res.type('text/plain; charset=utf-8').send(lines.join('\r\n'));
   });
 
+  cachedApp = app;
+  return app;
+}
+
+// ─── Start server in dev / local ───
+if (!isVercel) {
   const PORT = process.env.PORT || 3000;
+  const app = await createApp();
   app.listen(PORT, () => {
     console.log(`Servidor rodando em http://localhost:${PORT}`);
   });
 }
-
-init().catch((err) => {
-  console.error('Falha ao iniciar:', err);
-  process.exit(1);
-});
