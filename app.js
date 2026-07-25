@@ -235,7 +235,7 @@ async function togglePaid(id) {
   if (!person) return;
 
   if (!person.paid && !person.receipt && !FREE_NAMES.includes(person.name.toLowerCase())) {
-    alert('Adicione uma captura de tela do comprovante');
+    alert('Anexe o print do seu comprovante');
     return;
   }
 

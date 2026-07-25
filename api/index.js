@@ -55,7 +55,7 @@ app.patch('/api/people/:id/toggle', (req, res) => {
   if (!person) return res.status(404).json({ error: 'not found' });
 
   if (!person.paid && !person.receipt_data && !FREE_NAMES.includes(person.name.toLowerCase())) {
-    return res.status(400).json({ error: 'Adicione uma captura de tela do comprovante' });
+    return res.status(400).json({ error: 'Anexe o print do seu comprovante' });
   }
 
   const result = togglePaid(req.params.id);
