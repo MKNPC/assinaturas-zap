@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assinaturas Zap</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <div class="month-nav">
+        <button class="btn-icon" id="prevMonth" title="Mês anterior">&larr;</button>
+        <h2 id="monthTitle"></h2>
+        <button class="btn-icon" id="nextMonth" title="Próximo mês">&rarr;</button>
+      </div>
+      <div class="stats" id="stats"></div>
+    </header>
+
+    <main>
+      <form class="add-form" id="addForm">
+        <input
+          type="text"
+          id="nameInput"
+          placeholder="Digite o nome..."
+          required
+          autocomplete="off"
+        />
+        <button type="submit" id="addBtn">Adicionar</button>
+      </form>
+
+      <div class="list-controls">
+        <div class="search-box">
+          <input type="text" id="searchInput" placeholder="Buscar..." />
+        </div>
+        <div class="filter-tabs">
+          <button class="filter-btn active" data-filter="all">Todos</button>
+          <button class="filter-btn" data-filter="paid">Pagos</button>
+          <button class="filter-btn" data-filter="unpaid">Pendentes</button>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="people-table" id="peopleTable">
+          <thead>
+            <tr>
+              <th class="col-name">Nome</th>
+              <th class="col-status">Status</th>
+              <th class="col-receipt">Comprovante</th>
+              <th class="col-date">Data</th>
+              <th class="col-actions">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="peopleList"></tbody>
+        </table>
+      </div>
+
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">📋</div>
+        <p>Nenhuma pessoa cadastrada neste mês.</p>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <button class="btn-danger" id="resetMonth">Resetar Mês</button>
+      <button class="btn-secondary" id="exportData">Exportar</button>
+    </footer>
+  </div>
+
+  <div class="modal-overlay" id="receiptModal">
+    <div class="modal">
+      <button class="modal-close">&times;</button>
+      <img id="receiptImage" src="" alt="Comprovante" />
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
