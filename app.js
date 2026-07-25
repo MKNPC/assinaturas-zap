@@ -228,7 +228,17 @@ async function addPerson(name) {
   }
 }
 
+const FREE_NAMES = ['mikael lorran natali'];
+
 async function togglePaid(id) {
+  const person = state.people.find((p) => p.id === id);
+  if (!person) return;
+
+  if (!person.paid && !person.receipt && !FREE_NAMES.includes(person.name.toLowerCase())) {
+    alert('Adicione uma captura de tela do comprovante');
+    return;
+  }
+
   try {
     await api(`/people/${id}/toggle`, { method: 'PATCH' });
     await loadPeople();
