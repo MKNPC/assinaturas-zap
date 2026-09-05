@@ -68,15 +68,15 @@ async function api(path, options = {}) {
     throw new Error('Sem conexão com o servidor.');
   }
 
-  let data;
+  let data = null;
   try {
     data = await res.json();
-  } catch {
-    if (res.ok) return null;
-    throw new Error(`Erro inesperado do servidor (${res.status}).`);
-  }
+  } catch {}
 
-  if (!res.ok) throw new Error(data.error || `Erro desconhecido (${res.status}).`);
+  if (!res.ok) {
+    if (res.status === 413) throw new Error('Arquivo muito grande. Tente uma imagem ou foto menor.');
+    throw new Error(data?.error || `Erro inesperado do servidor (${res.status}).`);
+  }
   return data;
 }
 
@@ -186,7 +186,7 @@ function renderRow(person) {
         <input
           type="file"
           class="receipt-input"
-          accept="image/*"
+          accept="image/*,video/*"
           data-id="${person.id}"
         />
       </label>
@@ -226,14 +226,30 @@ function renderRow(person) {
 // ─── Actions ───
 async function addPerson(name) {
   addBtn.disabled = true;
+  const id = (crypto.randomUUID && crypto.randomUUID()) || `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const temp = { id, name, paid: false, paidAt: null, receipt: null };
+  state.people.push(temp);
+  nameInput.value = '';
+  render();
   try {
-    await api('/people', {
+    const created = await api('/people', {
       method: 'POST',
       body: JSON.stringify({ name, month: state.currentMonth }),
     });
-    nameInput.value = '';
-    await loadPeople();
+    const idx = state.people.findIndex((p) => p.id === temp.id);
+    const person = {
+      id: created.id,
+      name: created.name,
+      paid: false,
+      paidAt: null,
+      receipt: null,
+    };
+    if (idx !== -1) state.people[idx] = person;
+    else state.people.push(person);
+    render();
   } catch (err) {
+    state.people = state.people.filter((p) => p.id !== temp.id);
+    render();
     alert(err.message);
   } finally {
     addBtn.disabled = false;
@@ -252,44 +268,121 @@ async function togglePaid(id) {
     return;
   }
 
+  const prev = { paid: person.paid, paidAt: person.paidAt };
+  person.paid = !prev.paid;
+  person.paidAt = person.paid ? new Date().toISOString().split('T')[0] : null;
+  render();
+
   try {
-    await api(`/people/${id}/toggle`, { method: 'PATCH' });
-    await loadPeople();
+    const res = await api(`/people/${id}/toggle`, { method: 'PATCH' });
+    const cur = state.people.find((p) => p.id === id);
+    if (cur) {
+      cur.paid = res.paid;
+      cur.paidAt = res.paidAt || null;
+      render();
+    }
   } catch (err) {
+    const cur = state.people.find((p) => p.id === id);
+    if (cur) {
+      cur.paid = prev.paid;
+      cur.paidAt = prev.paidAt;
+    }
+    render();
     alert(err.message);
   }
 }
 
 async function deletePerson(id) {
   if (!confirm('Remover esta pessoa?')) return;
+  const idx = state.people.findIndex((p) => p.id === id);
+  if (idx === -1) return;
+  const [removed] = state.people.splice(idx, 1);
+  render();
   try {
     await api(`/people/${id}`, { method: 'DELETE' });
-    await loadPeople();
   } catch (err) {
+    state.people.push(removed);
+    render();
     alert(err.message);
   }
 }
 
 async function handleReceiptUpload(id, file) {
-  if (!file || !file.type.startsWith('image/')) {
-    alert('Arquivo inválido. Envie uma imagem.');
+  const person = state.people.find((p) => p.id === id);
+  if (!person) return;
+
+  const isImage = file && file.type.startsWith('image/');
+  const isVideo = file && file.type.startsWith('video/');
+  if (!isImage && !isVideo) {
+    alert('Arquivo inválido. Envie uma imagem ou um print (vídeo).');
     return;
   }
+
+  const prevReceipt = person.receipt;
+  let data;
+  let fileName = file.name;
+
   try {
-    const data = await compressImage(file);
-    await api(`/people/${id}/receipt`, {
-      method: 'PATCH',
-      body: JSON.stringify({ data, name: file.name }),
-    });
-    await loadPeople();
+    if (isVideo) {
+      data = await videoToImage(file);
+      if (!/\.jpe?g$/i.test(fileName)) fileName += '.jpg';
+    } else {
+      data = await compressImage(file);
+      if (/\.heic$/i.test(fileName)) fileName = fileName.replace(/\.heic$/i, '.jpg');
+    }
   } catch (err) {
+    alert(err.message);
+    return;
+  }
+  if (!data) {
+    alert('Não foi possível processar o arquivo.');
+    return;
+  }
+
+  person.receipt = { data, name: fileName };
+  render();
+
+  try {
+    const res = await api(`/people/${id}/receipt`, {
+      method: 'PATCH',
+      body: JSON.stringify({ data, name: fileName }),
+    });
+    const cur = state.people.find((p) => p.id === id);
+    if (cur) cur.receipt = res.receipt;
+    render();
+  } catch (err) {
+    const cur = state.people.find((p) => p.id === id);
+    if (cur) cur.receipt = prevReceipt || undefined;
+    render();
     alert(err.message);
   }
 }
 
+function finalizeImage(canvas, ctx, img, w, h, fileType) {
+  const MAX_SMALL = 800;
+  const SMALL_Q = 0.6;
+  let type = 'image/jpeg';
+  if (fileType === 'image/png' && hasTransparency(ctx, w, h)) {
+    type = 'image/png';
+  }
+  let dataUrl = canvas.toDataURL(type, type === 'image/png' ? undefined : 0.72);
+
+  if (dataUrl.length > 3500000) {
+    const scale = Math.min(1, MAX_SMALL / Math.max(w, h));
+    const w2 = Math.max(1, Math.round(w * scale));
+    const h2 = Math.max(1, Math.round(h * scale));
+    canvas.width = w2;
+    canvas.height = h2;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w2, h2);
+    ctx.drawImage(img, 0, 0, w2, h2);
+    dataUrl = canvas.toDataURL('image/jpeg', SMALL_Q);
+  }
+  return dataUrl;
+}
+
 function compressImage(file) {
   const MAX_DIM = 1000;
-  const QUALITY = 0.72;
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -307,11 +400,7 @@ function compressImage(file) {
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
-        let type = 'image/jpeg';
-        if (file.type === 'image/png' && hasTransparency(ctx, w, h)) {
-          type = 'image/png';
-        }
-        resolve(canvas.toDataURL(type, type === 'image/png' ? undefined : QUALITY));
+        resolve(finalizeImage(canvas, ctx, img, w, h, file.type));
       } catch (err) {
         reject(err);
       }
@@ -321,6 +410,66 @@ function compressImage(file) {
       reject(new Error('Não foi possível ler a imagem.'));
     };
     img.src = url;
+  });
+}
+
+function videoToImage(file) {
+  const MAX_DIM = 1000;
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    let settled = false;
+
+    const cleanup = () => {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(url);
+    };
+    const done = (resolveFn, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolveFn(value);
+    };
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    setTimeout(() => fail(new Error('Não foi possível ler o vídeo.')), 8000);
+
+    video.onerror = () => fail(new Error('Não foi possível ler o vídeo.'));
+    video.onloadedmetadata = () => {
+      const t = Math.min(0.1, (Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0.4) / 4);
+      video.currentTime = t;
+    };
+    video.onseeked = () => {
+      try {
+        const vw = video.videoWidth || 1;
+        const vh = video.videoHeight || 1;
+        const scale = Math.min(1, MAX_DIM / Math.max(vw, vh));
+        const w = Math.max(1, Math.round(vw * scale));
+        const h = Math.max(1, Math.round(vh * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Não foi possível processar o vídeo.');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(video, 0, 0, w, h);
+        done(resolve, finalizeImage(canvas, ctx, video, w, h, 'image/jpeg'));
+      } catch (err) {
+        fail(err);
+      }
+    };
+    video.src = url;
   });
 }
 
@@ -336,10 +485,16 @@ function hasTransparency(ctx, w, h) {
 
 async function removeReceipt(id) {
   if (!confirm('Remover comprovante?')) return;
+  const person = state.people.find((p) => p.id === id);
+  if (!person) return;
+  const prev = person.receipt;
+  person.receipt = null;
+  render();
   try {
     await api(`/people/${id}/receipt`, { method: 'DELETE' });
-    await loadPeople();
   } catch (err) {
+    if (person) person.receipt = prev || undefined;
+    render();
     alert(err.message);
   }
 }
@@ -402,7 +557,10 @@ peopleList.addEventListener('click', (e) => {
 peopleList.addEventListener('change', (e) => {
   const input = e.target.closest('.receipt-input');
   if (!input || !input.files.length) return;
-  handleReceiptUpload(input.dataset.id, input.files[0]);
+  const id = input.dataset.id;
+  const file = input.files[0];
+  input.value = '';
+  handleReceiptUpload(id, file);
 });
 
 // ─── Form ───
