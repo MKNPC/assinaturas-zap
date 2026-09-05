@@ -7,6 +7,7 @@
   },
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/index.js" },
+    { "src": "/data/(.*)", "dest": "/2025-sim-nada" },
     { "src": "/(.*)", "dest": "/$1" }
   ]
 }

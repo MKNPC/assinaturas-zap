@@ -17,7 +17,11 @@ app.use(express.json({ limit: '10mb' }));
 
 const FREE_NAMES = ['mikael lorran natali'];
 
-app.get('/api/ping', async (req, res) => {
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+app.get('/api/ping', wrap(async (req, res) => {
   let storeOk = false;
   try {
     const p = await getPeople('2026-07');
@@ -29,9 +33,9 @@ app.get('/api/ping', async (req, res) => {
     hasToken: Boolean(process.env.GH_TOKEN || process.env.gh_token),
     storeOk,
   });
-});
+}));
 
-app.get('/api/people', async (req, res) => {
+app.get('/api/people', wrap(async (req, res) => {
   const month = req.query.month;
   if (!month) return res.status(400).json({ error: 'month required' });
 
@@ -45,9 +49,9 @@ app.get('/api/people', async (req, res) => {
   }));
 
   res.json({ month, people });
-});
+}));
 
-app.post('/api/people', async (req, res) => {
+app.post('/api/people', wrap(async (req, res) => {
   const { name, month } = req.body;
   if (!name || !month) return res.status(400).json({ error: 'name and month required' });
 
@@ -62,9 +66,9 @@ app.post('/api/people', async (req, res) => {
   await addPerson(id, trimmed, month);
 
   res.status(201).json({ id, name: trimmed, month, paid: false, receipt: null, paidAt: null });
-});
+}));
 
-app.patch('/api/people/:id/toggle', async (req, res) => {
+app.patch('/api/people/:id/toggle', wrap(async (req, res) => {
   const person = await getPerson(req.params.id);
   if (!person) return res.status(404).json({ error: 'not found' });
 
@@ -74,34 +78,38 @@ app.patch('/api/people/:id/toggle', async (req, res) => {
 
   const result = await togglePaid(req.params.id);
   res.json(result);
-});
+}));
 
-app.patch('/api/people/:id/receipt', async (req, res) => {
+app.patch('/api/people/:id/receipt', wrap(async (req, res) => {
   const { data, name } = req.body;
   if (!data) return res.status(400).json({ error: 'receipt data required' });
 
   const result = await setReceipt(req.params.id, data, name || null);
   if (!result) return res.status(404).json({ error: 'not found' });
   res.json(result);
-});
+}));
 
-app.delete('/api/people/:id/receipt', async (req, res) => {
+app.delete('/api/people/:id/receipt', wrap(async (req, res) => {
   const result = await removeReceipt(req.params.id);
   if (!result) return res.status(404).json({ error: 'not found' });
   res.json(result);
-});
+}));
 
-app.delete('/api/people/:id', async (req, res) => {
+app.delete('/api/people/:id', wrap(async (req, res) => {
   const ok = await deletePerson(req.params.id);
   if (!ok) return res.status(404).json({ error: 'not found' });
   res.json({ deleted: true });
-});
+}));
 
-app.get('/api/export', async (req, res) => {
+app.get('/api/export', wrap(async (req, res) => {
   const month = req.query.month;
   if (!month) return res.status(400).json({ error: 'month required' });
 
   res.type('text/plain; charset=utf-8').send(await exportMonth(month));
+}));
+
+app.use((err, req, res, next) => {
+  res.status(500).json({ error: err.message || 'Erro interno' });
 });
 
 export default app;

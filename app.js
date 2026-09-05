@@ -58,12 +58,25 @@ const loadingEl = $('#loadingIndicator');
 
 // ─── API ───
 async function api(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Erro desconhecido');
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+  } catch {
+    throw new Error('Sem conexão com o servidor.');
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    if (res.ok) return null;
+    throw new Error(`Erro inesperado do servidor (${res.status}).`);
+  }
+
+  if (!res.ok) throw new Error(data.error || `Erro desconhecido (${res.status}).`);
   return data;
 }
 
@@ -182,23 +195,23 @@ function renderRow(person) {
 
   return `
     <tr>
-      <td class="col-name">
+      <td class="col-name" data-label="Nome">
         <span class="person-name">${escapeHTML(person.name)}</span>
       </td>
-      <td class="col-status">
+      <td class="col-status" data-label="Status">
         <button
           class="status-badge ${paidClass}"
           data-id="${person.id}"
           data-action="toggle-paid"
         >${paidLabel}</button>
       </td>
-      <td class="col-receipt">
+      <td class="col-receipt" data-label="Comprovante">
         <div class="receipt-cell">${receiptHTML}</div>
       </td>
-      <td class="col-date">
+      <td class="col-date" data-label="Data">
         <span class="date-cell">${formatDate(person.paidAt)}</span>
       </td>
-      <td class="col-actions" style="text-align:center">
+      <td class="col-actions" data-label="Ações" style="text-align:center">
         <button
           class="action-btn"
           data-id="${person.id}"
@@ -258,19 +271,67 @@ async function deletePerson(id) {
 }
 
 async function handleReceiptUpload(id, file) {
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      await api(`/people/${id}/receipt`, {
-        method: 'PATCH',
-        body: JSON.stringify({ data: e.target.result, name: file.name }),
-      });
-      await loadPeople();
-    } catch (err) {
-      alert(err.message);
+  if (!file || !file.type.startsWith('image/')) {
+    alert('Arquivo inválido. Envie uma imagem.');
+    return;
+  }
+  try {
+    const data = await compressImage(file);
+    await api(`/people/${id}/receipt`, {
+      method: 'PATCH',
+      body: JSON.stringify({ data, name: file.name }),
+    });
+    await loadPeople();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function compressImage(file) {
+  const MAX_DIM = 1000;
+  const QUALITY = 0.72;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      try {
+        const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Não foi possível processar a imagem.');
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        let type = 'image/jpeg';
+        if (file.type === 'image/png' && hasTransparency(ctx, w, h)) {
+          type = 'image/png';
+        }
+        resolve(canvas.toDataURL(type, type === 'image/png' ? undefined : QUALITY));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Não foi possível ler a imagem.'));
+    };
+    img.src = url;
+  });
+}
+
+function hasTransparency(ctx, w, h) {
+  try {
+    const data = ctx.getImageData(0, 0, w, h).data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] < 250) return true;
     }
-  };
-  reader.readAsDataURL(file);
+  } catch {}
+  return false;
 }
 
 async function removeReceipt(id) {
@@ -293,6 +354,14 @@ async function navigateMonth(direction) {
 async function exportData() {
   try {
     const res = await fetch(`${API_BASE}/export?month=${state.currentMonth}`);
+    if (!res.ok) {
+      let msg = `Erro ${res.status}`;
+      try {
+        const err = await res.json();
+        if (err.error) msg = err.error;
+      } catch {}
+      throw new Error(msg);
+    }
     const text = await res.text();
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);

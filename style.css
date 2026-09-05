@@ -501,34 +501,188 @@ body {
   background: rgba(0, 0, 0, 0.8);
 }
 
-/* ─── Responsive ─── */
-@media (max-width: 540px) {
-  #app {
-    padding: 0.75rem;
-  }
-
-  .people-table th,
-  .people-table td {
-    padding: 0.5rem 0.5rem;
-    font-size: 0.8125rem;
-  }
-
-  .col-date {
-    display: none;
+/* ─── Touch devices: always show receipt remove ─── */
+@media (hover: none) {
+  .receipt-remove-btn {
+    opacity: 1;
   }
 }
 
-@media (max-width: 420px) {
-  .col-receipt {
-    display: none;
+/* ─── Responsive / Mobile ─── */
+@media (max-width: 640px) {
+  #app {
+    padding: 0.5rem;
+  }
+
+  .header {
+    padding: 0.75rem 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .month-nav h2 {
+    font-size: 1rem;
+    min-width: 130px;
+  }
+
+  .stats {
+    font-size: 0.8125rem;
   }
 
   .add-form {
     flex-direction: column;
   }
 
-  .month-nav h2 {
+  .add-form input,
+  .add-form button {
+    width: 100%;
+    padding: 0.75rem 0.875rem;
     font-size: 1rem;
-    min-width: 140px;
+    border-radius: var(--radius);
+  }
+
+  .list-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .search-box {
+    min-width: 0;
+  }
+
+  .filter-tabs {
+    justify-content: center;
+  }
+
+  /* ─── Table → Cards ─── */
+  .table-wrapper {
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .people-table,
+  .people-table tbody,
+  .people-table thead {
+    display: block;
+  }
+
+  .people-table thead {
+    display: none;
+  }
+
+  .people-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.35rem 0.75rem;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .people-table tr:hover td {
+    background: transparent;
+  }
+
+  .people-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: none;
+    padding: 0.25rem 0;
+    font-size: 0.9375rem;
+    width: 100%;
+  }
+
+  .people-table td::before {
+    content: attr(data-label);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    margin-right: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  .col-name {
+    grid-column: 1 / 2;
+    grid-row: 1;
+  }
+
+  .col-name::before {
+    display: none;
+  }
+
+  .col-name .person-name {
+    font-size: 1rem;
+  }
+
+  .col-status {
+    grid-column: 1 / -1;
+  }
+
+  .col-receipt {
+    grid-column: 1 / -1;
+  }
+
+  .col-receipt .receipt-cell {
+    width: 100%;
+  }
+
+  .col-date {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .col-actions {
+    grid-column: 2 / 3;
+    grid-row: 1;
+    justify-content: flex-end;
+    padding: 0.25rem 0;
+  }
+
+  .status-badge {
+    width: 100%;
+    justify-content: center;
+    padding: 0.6rem;
+    font-size: 0.875rem;
+    border-radius: var(--radius);
+  }
+
+  .receipt-label {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    padding: 0.75rem;
+    font-size: 0.9375rem;
+    border-radius: var(--radius);
+  }
+
+  .receipt-preview {
+    width: 56px;
+    height: 56px;
+  }
+
+  .action-btn {
+    font-size: 1.125rem;
+    padding: 0.5rem 0.7rem;
+  }
+
+  .btn-secondary {
+    padding: 0.7rem 1.25rem;
+    font-size: 0.9375rem;
+  }
+
+  .footer {
+    position: sticky;
+    bottom: 0;
+    background: var(--bg);
   }
 }
